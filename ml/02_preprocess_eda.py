@@ -68,16 +68,19 @@ def image_md5(path):
 def main():
     df = pokemon_frame()
     say(f"Raw rows: {len(df)}")
+    facts = {"raw_rows": len(df)}  # numbers quoted by paper/build_paper.py
 
     # --- duplicates -------------------------------------------------------
     dup_keys = df.duplicated(["game", "card_key"], keep="first")
     say(f"Duplicate card_key rows removed: {dup_keys.sum()}")
+    facts["duplicates"] = int(dup_keys.sum())
     df = df[~dup_keys].copy()
 
     # --- missing images ---------------------------------------------------
     df["image_path"] = [str(IMG / g / f"{k}.jpg") for g, k in zip(df.game, df.card_key)]
     has_img = df.image_path.map(lambda p: Path(p).exists())
     say(f"Rows without a downloadable image (dropped): {(~has_img).sum()}")
+    facts["no_image"] = int((~has_img).sum())
     df = df[has_img].copy()
 
     # --- inconsistent formats ---------------------------------------------
@@ -106,6 +109,7 @@ def main():
         n_hi = (sub.log_price > hi).sum()
         say(f"[{g}] price outliers above log10 IQR fence (>${10 ** hi:,.2f}): {n_hi} "
             f"- kept, they are genuine chase cards")
+        facts.update(outlier_fence=round(10 ** hi, 2), outliers=int(n_hi))
 
     # --- identical images (indistinguishable by any visual method) ---------
     md5 = df.image_path.map(image_md5)
@@ -113,6 +117,7 @@ def main():
     say(f"Groups of pixel-identical card images: {len(groups)} "
         f"covering {sum(map(len, groups))} cards (treated as equivalent at evaluation)")
     (PROC / "dup_groups.json").write_text(json.dumps(groups))
+    facts.update(dup_groups=len(groups), dup_cards=sum(map(len, groups)))
 
     df.drop(columns=["image_path"]).to_csv(PROC / "cards.csv", index=False)
     say(f"Clean rows saved: {len(df)}")
@@ -136,10 +141,10 @@ def main():
 
     fig, ax = plt.subplots(figsize=(6, 4.2))
     order = priced.groupby("rarity").market_usd.median().sort_values(ascending=False)
-    order = order[priced.rarity.value_counts()[order.index] >= 10]
+    order = order[priced.rarity.value_counts()[order.index] >= 50]
     sns.barplot(x=order.values, y=order.index, ax=ax, color="#3B4CCA")
     ax.set_xscale("log"); ax.set_xlabel("Median market price (USD, log)")
-    ax.set_ylabel(""); ax.set_title("Median price by rarity (rarities with >= 10 cards)")
+    ax.set_ylabel(""); ax.set_title("Median price by rarity (rarities with >= 50 cards)")
     fig.tight_layout(); fig.savefig(OUT / "eda_price_by_rarity.png", dpi=200); plt.close(fig)
 
     pkp = priced[priced.game == "pokemon"]
@@ -161,15 +166,38 @@ def main():
     fig.tight_layout(); fig.savefig(OUT / "eda_correlation.png", dpi=200); plt.close(fig)
     say("\nPokemon correlation matrix:\n" + corr.round(3).to_string())
 
-    fig, ax = plt.subplots(figsize=(6, 3.4))
-    counts = (df.groupby(["set_name", "release_date"]).size().reset_index(name="n")
-              .sort_values("release_date"))
-    ax.bar(range(len(counts)), counts.n, color="#FFCB05", edgecolor="#3B4CCA")
-    ax.set_xticks(range(len(counts)), counts.set_name, rotation=70, ha="right", fontsize=6)
-    ax.set_ylabel("Cards"); ax.set_title("Cards per set (in release order)")
+    fig, ax = plt.subplots(figsize=(6, 3.2))
+    per_year = df.groupby(df.release_date.dt.year).size()
+    ax.bar(per_year.index, per_year.values, color="#FFCB05", edgecolor="#3B4CCA")
+    ax.set_xlabel("Release year"); ax.set_ylabel("Cards")
+    ax.set_title("Cards in the dataset per release year")
     fig.tight_layout(); fig.savefig(OUT / "eda_set_sizes.png", dpi=200); plt.close(fig)
 
     (OUT / "eda_summary.txt").write_text("\n".join(log), encoding="utf-8")
+
+    # ---------------- facts for the paper ----------------
+    miss = df[df.market_usd.isna()]
+    newest = df.release_date.max().year
+    med = priced.groupby("rarity").market_usd.agg(["median", "count"])
+    med = med[med["count"] >= 50].sort_values("median", ascending=False)
+    top = priced.sort_values("market_usd", ascending=False).iloc[0]
+    facts.update(
+        clean=len(df), sets=int(df.set_id.nunique()), names=int(df.name.nunique()),
+        first=str(df.release_date.min().date()), last=str(df.release_date.max().date()),
+        missing_price=int(len(miss)), missing_pct=round(len(miss) / len(df) * 100, 1),
+        missing_newest_year=int((miss.release_date.dt.year == newest).sum()), newest_year=int(newest),
+        missing_rarity=int((df.rarity == "Unknown").sum()),
+        priced=int(len(priced)), median=round(float(priced.market_usd.median()), 2),
+        p90=round(float(priced.market_usd.quantile(.9)), 2),
+        top_name=top["name"], top_set=top.set_name, top_price=round(float(top.market_usd), 2),
+        rarity_top=med.index[0], rarity_top_median=round(float(med.iloc[0]["median"]), 2),
+        rarity_common_median=(round(float(med.loc["Common", "median"]), 2)
+                              if "Common" in med.index else None),
+        r_secret=round(float(corr.loc["log_price", "secret"]), 2),
+        r_hp=round(float(corr.loc["log_price", "hp"]), 2),
+        r_age=round(float(corr.loc["log_price", "age_days"]), 2),
+    )
+    (OUT / "dataset_facts.json").write_text(json.dumps(facts, indent=1), encoding="utf-8")
 
 
 if __name__ == "__main__":

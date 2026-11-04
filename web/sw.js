@@ -1,5 +1,5 @@
 // Offline cache for the app shell and the card index (prices always come live).
-const CACHE = "scandex-v2";
+const CACHE = "scandex-v3";
 const SHELL = ["./", "index.html", "css/app.css", "js/app.js", "js/features.js", "js/matcher.js",
   "js/ocr.js", "js/api.js", "js/binder.js", "model/fusion.json", "model/pokemon.json",
   "icon.svg", "manifest.webmanifest"];

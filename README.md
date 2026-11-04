@@ -9,7 +9,7 @@ Scan a Pokémon TCG card with your phone camera or your PC/laptop webcam, see it
 
 ```
 camera frame ─► crop to on-screen guide ─► fingerprints (aHash, dHash, pHash-64, pHash-256, colour layout, HSV histogram)
-            ─► k-NN search over 4,799 indexed cards, ranked by a pairwise logistic-regression fusion model
+            ─► k-NN search over 20,617 indexed cards, ranked by a pairwise logistic-regression fusion model
             ─► OCR text check of the printed collector number (Tesseract.js) confirms or corrects the result
             ─► live price: Pokémon TCG API (TCGplayer USD + Cardmarket EUR)
             ─► add to binder (stored on the device: value totals, refresh prices, CSV export, backup)
@@ -36,7 +36,7 @@ The `web/` folder is fully static. You can also deploy it to GitHub Pages or Net
 ```bash
 pip install -r requirements.txt
 cd ml
-python 01_collect_dataset.py      # metadata + prices + images from the Pokémon TCG API (~4.8k cards)
+python 01_collect_dataset.py      # metadata + prices + images from the Pokémon TCG API (~20.6k cards, ~600 MB)
 python 02_preprocess_eda.py       # cleaning, duplicates, outliers, figures -> outputs/
 python 03_build_index.py          # fingerprints -> data/processed/features.npz + web/model/*.json
 python 04_evaluate.py             # experiments, LR fusion training -> outputs/, web/model/fusion.json
@@ -50,9 +50,9 @@ The Pokémon TCG API sometimes returns 500/502 errors. The collector retries wit
 Put your own photos in `ml/data/real/` and name each one after its Pokémon TCG API card id, for example `sv3pt5-25.jpg`. Crop each photo to the card, the same way the app's guide frame does. Then run `05_evaluate_real.py`.
 
 ## Data scope
-* Pokémon: the 26 Scarlet & Violet and Mega Evolution era sets (Nov 2022 – Sep 2026).
+* Every English Pokémon TCG set in the API: 20,617 cards from 172 sets (1999 – 2026). Set `POKEMON_SERIES` in `ml/01_collect_dataset.py` to index fewer eras.
 
-Cards outside the offline index can still be found by their OCR'd collector number, or with the Search tab, which queries the full Pokémon catalogue.
+If a scan is not recognised confidently, the app reads the card's printed number and name and searches the online catalogue.
 
 ## Data sources and licences
 Card data, images and prices come from the [Pokémon TCG API](https://pokemontcg.io). They are used for non-commercial, educational purposes. Pokémon card images and names are trademarks of their owners. ScanDex is not affiliated with The Pokémon Company, Nintendo or TCGplayer. Prices are market estimates and do not account for card condition or grading.

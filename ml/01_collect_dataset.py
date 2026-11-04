@@ -27,8 +27,9 @@ RAW = ROOT / "data" / "raw"
 IMG = ROOT / "data" / "images"
 THUMB = (200, 280)
 
-# Pokemon scope: Scarlet & Violet and Mega Evolution era sets (2023 onwards)
-POKEMON_SERIES = {"Scarlet & Violet", "Mega Evolution"}
+# Pokemon scope: every English set in the API (1999 onwards). Set to a set of
+# series names, e.g. {"Scarlet & Violet", "Mega Evolution"}, to index fewer eras.
+POKEMON_SERIES = None
 POKEMON_API = "https://api.pokemontcg.io/v2"
 
 session = requests.Session()
@@ -50,27 +51,32 @@ def get_json(url, params=None, tries=12):
 
 def collect_pokemon():
     sets = get_json(f"{POKEMON_API}/sets", {"pageSize": 250})["data"]
-    sets = [s for s in sets if s["series"] in POKEMON_SERIES]
+    if POKEMON_SERIES:
+        sets = [s for s in sets if s["series"] in POKEMON_SERIES]
     print(f"Pokemon: {len(sets)} sets in scope")
-    cards = []
     cache = RAW / "pokemon_sets"
     cache.mkdir(exist_ok=True)
-    for s in sorted(sets, key=lambda s: s["releaseDate"]):
+
+    def fetch_set(s):
         f = cache / f"{s['id']}.json"
         if f.exists():  # resume: sets already fetched are not requested again
-            set_cards = json.loads(f.read_text(encoding="utf-8"))
-        else:
-            set_cards, page = [], 1
-            while True:  # small pages: the free API times out on pageSize=250
-                d = get_json(f"{POKEMON_API}/cards",
-                             {"q": f"set.id:{s['id']}", "pageSize": 60, "page": page})
-                set_cards += d["data"]
-                if page * 60 >= d["totalCount"]:
-                    break
-                page += 1
-            f.write_text(json.dumps(set_cards), encoding="utf-8")
-        cards += set_cards
-        print(f"  {s['id']:<12} {s['name']:<40} total so far {len(cards)}")
+            return json.loads(f.read_text(encoding="utf-8"))
+        set_cards, page = [], 1
+        while True:  # small pages: the free API times out on pageSize=250
+            d = get_json(f"{POKEMON_API}/cards",
+                         {"q": f"set.id:{s['id']}", "pageSize": 60, "page": page}, tries=30)
+            set_cards += d["data"]
+            if page * 60 >= d["totalCount"]:
+                break
+            page += 1
+        f.write_text(json.dumps(set_cards), encoding="utf-8")
+        print(f"  {s['id']:<12} {s['name']:<40} {len(set_cards)} cards", flush=True)
+        return set_cards
+
+    sets = sorted(sets, key=lambda s: s["releaseDate"])
+    with ThreadPoolExecutor(6) as ex:  # sets in parallel: each one waits on retries
+        per_set = list(ex.map(fetch_set, sets))
+    cards = [c for sc in per_set for c in sc]
     return cards
 
 

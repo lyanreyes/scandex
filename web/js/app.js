@@ -1,6 +1,6 @@
 import { extract } from "./features.js";
 import { Matcher } from "./matcher.js";
-import { readCode, warmUpOCR } from "./ocr.js";
+import { readCard, warmUpOCR } from "./ocr.js";
 import { livePrice, lookupByCode, searchPokemon, bestMarket, fxRates } from "./api.js";
 import { binder } from "./binder.js";
 
@@ -8,6 +8,9 @@ const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const CONDITIONS = ["NM", "LP", "MP", "HP", "DMG"];
+// below this calibrated confidence the visual match is treated as "not recognised"
+// (about 1 in 7 such top answers is right; see ml/outputs/eval_threshold.csv)
+const LOW_CONF = 0.3;
 
 const state = {
   binderFilter: "", currency: "USD", rates: { USD: 1 },
@@ -194,10 +197,13 @@ async function scan() {
     const yours = hi.toDataURL("image/jpeg", 0.8);
     const top = ranked.results[0];
     await minWobble;
-    setStatus(`Matched in ${ms.toFixed(0)} ms against ${state.matcher.size.toLocaleString()} cards · reading card text…`);
-    showMatch(top, { prob: top.prob, alts: ranked.results.slice(1, 9), yours, how: "visual" });
+    const unsure = top.prob != null && top.prob < LOW_CONF;
+    setStatus(`${unsure ? "No confident match" : "Matched"} in ${ms.toFixed(0)} ms against ${state.matcher.size.toLocaleString()} cards · reading card text…`);
+    if (unsure) showUnsure(ranked.results.slice(0, 8), yours);
+    else showMatch(top, { prob: top.prob, alts: ranked.results.slice(1, 9), yours, how: "visual" });
     // text check runs in the background and can confirm or correct the match
-    readCode(hi).then((code) => sid === state.scanId && applyOCR(code, ranked, yours)).catch(() => setStatus(`Matched in ${ms.toFixed(0)} ms · text check unavailable`));
+    readCard(hi).then((code) => sid === state.scanId && applyOCR(code, ranked, yours, unsure))
+      .catch(() => setStatus(`Matched in ${ms.toFixed(0)} ms · text check unavailable`));
   } catch (e) {
     console.error(e);
     setStatus(`Scan failed: ${e.message}`);
@@ -209,32 +215,93 @@ async function scan() {
   }
 }
 
-async function applyOCR(code, ranked, yours) {
-  const label = code.number ? `${code.number}${code.total ? "/" + code.total : ""}` : null;
-  if (!label) { setStatus("Visual match only — no collector number could be read"); return; }
+const sameName = (card, code) => code.name && card.name.toLowerCase().startsWith(code.name.toLowerCase());
+const suffixOk = (card, code) => !code.suffix || new RegExp(`\\b${code.suffix}\\b`, "i").test(card.name);
+
+async function applyOCR(code, ranked, yours, unsure) {
+  const numLabel = code.number ? `${code.number}${code.total ? "/" + code.total : ""}` : null;
+  const nameLabel = code.name ? `${code.name}${code.suffix ? " " + code.suffix : ""}` : null;
+  const label = numLabel || nameLabel;
+  if (!label) {
+    setStatus(unsure ? "Couldn't read the card's name or number — pick a candidate or use Search"
+      : "Visual match only — no collector number could be read");
+    return;
+  }
   const top = ranked.results[0];
-  const ids = new Set(state.matcher.findByCode(code));
-  if (ids.size) {
-    const best = ranked.all.find((r) => ids.has(r.i));
+  // 1) printed number found in the offline index -> confirm or correct the visual match
+  let ids = state.matcher.findByCode(code);
+  if (ids.length && code.name) {
+    const named = ids.filter((i) => sameName(state.matcher.cards[i], code));
+    if (named.length) ids = named;
+  }
+  if (ids.length) {
+    const set = new Set(ids);
+    const best = ranked.all.find((r) => set.has(r.i));
     const card = state.matcher.cards[best.i];
-    if (card.key === top.key) {
-      setStatus(`Verified: printed number ${label} matches`);
-      $("#verify")?.replaceChildren(Object.assign(document.createElement("span"), { className: "tag ok", textContent: `✓ text ${label}` }));
+    if (card.key === top.key && !unsure) {
+      setStatus(`Verified: printed number ${numLabel} matches`);
+      $("#verify")?.replaceChildren(Object.assign(document.createElement("span"), { className: "tag ok", textContent: `✓ text ${numLabel}` }));
     } else {
-      setStatus(`Corrected using printed number ${label}`);
-      showMatch(card, { prob: null, alts: [top, ...ranked.results.slice(1, 8)].filter((c) => c.key !== card.key),
-        yours, how: "text", label });
+      setStatus(`Identified using printed number ${numLabel}`);
+      showMatch(card, { prob: null, alts: ranked.results.slice(0, 8).filter((c) => c.key !== card.key),
+        yours, how: "text", label: numLabel });
     }
     return;
   }
-  // number read but card not in the offline index (e.g. older set) -> ask the API
+  // 2) confident visual match whose name agrees with the printed name
+  if (!unsure && code.name && sameName(top, code)) {
+    setStatus(`Verified: printed name "${nameLabel}" matches`);
+    $("#verify")?.replaceChildren(Object.assign(document.createElement("span"), { className: "tag ok", textContent: `✓ name ${code.name}` }));
+    return;
+  }
+  if (!unsure && !code.name) { setStatus(`Read ${numLabel}, which is not in the offline index — showing visual match`); }
+  // 3) not in the offline index (e.g. an older set) -> ask the online catalogue
   try {
-    const found = await lookupByCode(code);
-    if (found.length) {
-      setStatus(`Found ${label} in the online catalogue (outside offline index)`);
-      showMatch(found[0], { prob: null, alts: found.slice(1).concat(ranked.results.slice(0, 4)), yours, how: "online", label, priced: found[0] });
-    } else setStatus(`Read ${label} but no catalogue card matches — showing visual match`);
-  } catch { setStatus(`Read ${label}; online lookup failed — showing visual match`); }
+    let found = [];
+    if (code.number) {
+      found = await lookupByCode(code);
+      if (code.name) {
+        const named = found.filter((c) => sameName(c, code));
+        if (named.length) found = named;
+      }
+    }
+    if (!found.length && code.name) {
+      found = (await searchPokemon(code.name)).filter((c) => sameName(c, code) && suffixOk(c, code));
+    }
+    if (!found.length) {
+      setStatus(`Read "${label}" but found no matching card online`);
+      return;
+    }
+    const by = code.number && found.some((c) => c.number.replace(/^0+/, "") === code.number.replace(/^0+/, "")) ? numLabel : nameLabel;
+    setStatus(`Found ${found.length} card${found.length > 1 ? "s" : ""} for "${by}" in the online catalogue`);
+    if (unsure || found.length === 1 || code.number) {
+      showMatch(found[0], { prob: null, alts: found.slice(1, 12).concat(ranked.results.slice(0, 3)), yours,
+        how: "online", label: by, priced: found[0], pickHint: found.length > 1 });
+    }
+  } catch {
+    setStatus(`Read "${label}"; online lookup failed — check your connection or use Search`);
+  }
+}
+
+function showUnsure(cands, yours) {
+  const root = $("#result");
+  root.innerHTML = `<div class="unsure">
+      <img src="${yours}" alt="Your scan">
+      <div>
+        <span class="tag warn">Not recognised</span>
+        <h2>Hmm… who's that card?</h2>
+        <p class="meta">This card may be from a set that isn't in the offline index yet, or the photo is blurry or not filling the frame.
+          ScanDex is reading the card's name and number to search the full catalogue…</p>
+      </div>
+    </div>
+    <div class="alts"><h3>Or is it one of these?</h3><div class="alt-list">${cands.map((c, i) => `<button class="alt" data-i="${i}" title="${esc(c.name)} · ${esc(c.set)}">
+      <img src="${esc(c.image)}" alt="" loading="lazy" referrerpolicy="no-referrer"><span>${esc(c.name)}</span></button>`).join("")}</div></div>`;
+  $$(".alt", root).forEach((b) => (b.onclick = () => {
+    state.scanId++;
+    const c = cands[+b.dataset.i];
+    showMatch(c, { prob: null, how: "manual", yours, alts: cands.filter((x) => x !== c) });
+  }));
+  if (matchMedia("(max-width: 900px)").matches) root.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
 /* ---------------- result panel ---------------- */
@@ -253,7 +320,7 @@ function cardBlock(card, { prob, yours, how, label } = {}) {
       <div class="bar"><b style="width:${Math.round(prob * 100)}%"></b></div>
       <small>${confident ? "Confident match" : "Best guess — tap an alternative if this is wrong"} · ${(prob * 100).toFixed(0)}%</small></div>`;
   const howTag = how === "text" ? `<span class="tag ok">✓ corrected by text ${esc(label)}</span>`
-    : how === "online" ? `<span class="tag ok">✓ found by number ${esc(label)}</span>` : "";
+    : how === "online" ? `<span class="tag ok">✓ found online: ${esc(label)}</span>` : "";
   return `<div class="match">
     <div class="art"><img src="${esc(card.image)}" alt="${esc(card.name)}" referrerpolicy="no-referrer">
       ${yours ? `<img class="yours" src="${yours}" alt="Your scan">` : ""}</div>
@@ -308,7 +375,8 @@ function showMatch(card, opts) {
   const root = $("#result");
   const alts = (opts.alts || []).map((c, i) => `<button class="alt" data-i="${i}" title="${esc(c.name)} · ${esc(c.set)}">
       <img src="${esc(c.image)}" alt="" loading="lazy" referrerpolicy="no-referrer"><span>${esc(c.name)}</span></button>`).join("");
-  root.innerHTML = cardBlock(card, opts) + (alts ? `<div class="alts"><h3>Not it? Other candidates</h3><div class="alt-list">${alts}</div></div>` : "");
+  const altTitle = opts.pickHint ? "Several printings match — pick yours" : "Not it? Other candidates";
+  root.innerHTML = cardBlock(card, opts) + (alts ? `<div class="alts"><h3>${altTitle}</h3><div class="alt-list">${alts}</div></div>` : "");
   $$(".alt", root).forEach((b) => (b.onclick = () => {
     const c = opts.alts[+b.dataset.i];
     state.scanId++; // a manual pick wins over a late OCR result

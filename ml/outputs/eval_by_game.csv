@@ -1,9 +1,9 @@
 ,pokemon
-pHash-256,50.694
-aHash-64,40.0
-Colour layout,66.361
-dHash-64,46.528
-HSV histogram,54.75
-Pairwise-LR fusion,73.611
-pHash-64,53.75
-Equal-weight sum,68.833
+pHash-256,48.817
+aHash-64,35.417
+Colour layout,64.817
+dHash-64,42.55
+HSV histogram,51.267
+Pairwise-LR fusion,71.15
+pHash-64,49.917
+Equal-weight sum,67.617

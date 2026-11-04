@@ -45,7 +45,7 @@ IMG, PROC, OUT = ROOT / "data" / "images", ROOT / "data" / "processed", ROOT / "
 WEB_MODEL = ROOT.parent / "web" / "model"
 OUT.mkdir(exist_ok=True)
 SEED = 42
-N_TRAIN_CARDS, N_CALIB_CARDS, N_TEST_CARDS = 600, 300, 1200   # test is capped by the 30 % split
+N_TRAIN_CARDS, N_CALIB_CARDS, N_TEST_CARDS = 1500, 600, 2000
 FEATS = ["a", "d", "p", "P", "c", "h"]
 LABELS = {"a": "aHash-64", "d": "dHash-64", "p": "pHash-64", "P": "pHash-256", "c": "Colour layout",
           "h": "HSV histogram", "sum": "Equal-weight sum", "lr": "Pairwise-LR fusion"}
@@ -314,6 +314,15 @@ def main():
                            f"calibrated on {len(Qcal)} captures of {len(calib_idx)} other cards",
               "seed": SEED}
     (WEB_MODEL / "fusion.json").write_text(json.dumps(fusion, indent=2))
+    lr_res = res[res.method == "lr"]
+    miss = lr_res[~lr_res.top1]
+    (OUT / "eval_facts.json").write_text(json.dumps({
+        "gallery": int(n), "train_cards": len(train_idx), "train_queries": len(Qtr),
+        "calib_cards": len(calib_idx), "calib_queries": len(Qcal),
+        "test_cards": len(test_idx), "test_queries": len(Qte),
+        "misses_in_top5_pct": round(float(miss.top5.mean() * 100), 1),
+        "weights": dict(zip(FEATS, np.round(w, 3).tolist())), "auto_accept": auto,
+    }, indent=1))
     print("wrote web/model/fusion.json")
 
 

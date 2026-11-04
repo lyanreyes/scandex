@@ -1,0 +1,19 @@
+{
+ "gallery": 20617,
+ "train_cards": 1500,
+ "train_queries": 4500,
+ "calib_cards": 600,
+ "calib_queries": 1800,
+ "test_cards": 2000,
+ "test_queries": 6000,
+ "misses_in_top5_pct": 30.0,
+ "weights": {
+  "a": -0.461,
+  "d": 3.413,
+  "p": 2.986,
+  "P": 2.113,
+  "c": 6.791,
+  "h": 53.688
+ },
+ "auto_accept": 0.7
+}

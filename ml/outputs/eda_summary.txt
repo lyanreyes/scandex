@@ -1,0 +1,20 @@
+Raw rows: 4800
+Duplicate card_key rows removed: 0
+Rows without a downloadable image (dropped): 1
+[pokemon] cards=4799  missing market price=886 (18.5%)  missing rarity=8
+[pokemon] price outliers above log10 IQR fence (>$232.93): 21 - kept, they are genuine chase cards
+Groups of pixel-identical card images: 0 covering 0 cards (treated as equivalent at evaluation)
+Clean rows saved: 4799
+
+Market price (USD):
+          count  mean    std   min   50%    90%     99%      max
+game                                                            
+pokemon  3913.0  7.78  43.48  0.02  0.21  14.38  104.39  1269.69
+
+Pokemon correlation matrix:
+            log_price     hp  age_days  secret  is_pokemon
+log_price       1.000  0.380     0.020   0.828      -0.002
+hp              0.380  1.000    -0.025   0.262       0.036
+age_days        0.020 -0.025     1.000  -0.062       0.030
+secret          0.828  0.262    -0.062   1.000      -0.067
+is_pokemon     -0.002  0.036     0.030  -0.067       1.000

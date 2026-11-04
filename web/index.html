@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#E3350D">
+  <meta name="description" content="ScanDex - scan Pokémon TCG cards for their current market value and keep a digital binder.">
+  <title>ScanDex</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="#scan" aria-label="ScanDex home">
+      <span class="ball-icon" aria-hidden="true"></span>
+      <span>Scan<b>Dex</b></span>
+    </a>
+    <nav class="tabs" aria-label="Main">
+      <a href="#scan" data-tab="scan">Scan</a>
+      <a href="#binder" data-tab="binder">Binder</a>
+      <a href="#search" data-tab="search">Search</a>
+    </nav>
+    <label class="currency">
+      <span class="sr">Currency</span>
+      <select id="currency">
+        <option value="USD">USD $</option>
+        <option value="PHP">PHP ₱</option>
+        <option value="EUR">EUR €</option>
+      </select>
+    </label>
+  </header>
+
+  <main>
+    <!-- ================= SCAN ================= -->
+    <section id="view-scan" class="view">
+      <div class="scan-layout">
+        <div class="scanner dex">
+          <div class="dex-lights" aria-hidden="true"><i class="big"></i><i class="r"></i><i class="y"></i><i class="g"></i></div>
+          <div class="viewport" id="viewport">
+            <video id="video" playsinline muted autoplay></video>
+            <img id="still" alt="" hidden>
+            <div class="guide" id="guide"><i></i><i></i><i></i><i></i></div>
+            <div class="shade"></div>
+            <div class="cam-msg" id="camMsg">
+              <span class="ball-icon big" aria-hidden="true"></span>
+              <p>Point your camera at a Pokémon card</p>
+              <button class="btn primary" id="startCam">Start camera</button>
+              <small>or upload a photo below</small>
+            </div>
+            <p class="hint" id="hint">Fit the card inside the frame</p>
+          </div>
+          <div class="controls">
+            <label class="btn round" title="Upload a photo">
+              <input type="file" id="upload" accept="image/*" hidden>
+              <svg viewBox="0 0 24 24"><path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3M12 4v12M7 9l5-5 5 5"/></svg>
+              <span>Upload</span>
+            </label>
+            <button class="pokeball" id="capture" aria-label="Scan card" disabled><span class="center"></span></button>
+            <button class="btn round" id="flip" title="Switch camera">
+              <svg viewBox="0 0 24 24"><path d="M4 7h11l-3-3M20 17H9l3 3"/></svg>
+              <span>Flip</span>
+            </button>
+          </div>
+          <div class="zoom-row" id="zoomRow" hidden>
+            <span>Zoom photo</span><input type="range" id="zoom" min="0.5" max="4" step="0.01" value="1">
+            <button class="btn ghost small" id="backToCam">Use camera</button>
+          </div>
+          <p class="status" id="status" aria-live="polite">Loading card index…</p>
+        </div>
+
+        <aside class="result" id="result" aria-live="polite">
+          <div class="empty">
+            <div class="empty-art" aria-hidden="true"><span class="ball-icon big"></span></div>
+            <h2>Who's that card?</h2>
+            <p>Throw the Poké Ball to scan. ScanDex compares your card with <b id="indexCount">thousands of</b> Pokémon cards and pulls the latest market price.</p>
+          </div>
+        </aside>
+      </div>
+    </section>
+
+    <!-- ================= BINDER ================= -->
+    <section id="view-binder" class="view" hidden>
+      <div class="stats" id="stats"></div>
+      <div class="toolbar">
+        <input id="binderFilter" type="search" placeholder="Filter by name or set" aria-label="Filter binder">
+        <select id="sort" aria-label="Sort">
+          <option value="added">Recently added</option>
+          <option value="value">Highest value</option>
+          <option value="name">Name</option>
+        </select>
+        <div class="spacer"></div>
+        <button class="btn ghost small" id="refresh">Refresh prices</button>
+        <button class="btn ghost small" id="export">Export CSV</button>
+        <button class="btn ghost small" id="backup">Backup</button>
+        <label class="btn ghost small">Restore<input type="file" id="restore" accept="application/json" hidden></label>
+      </div>
+      <div class="pockets" id="pockets"></div>
+    </section>
+
+    <!-- ================= SEARCH ================= -->
+    <section id="view-search" class="view" hidden>
+      <form class="searchbar" id="searchForm">
+        <input id="q" type="search" placeholder="Card name, set or number (e.g. Pikachu, 025/165)" autocomplete="off">
+        <button class="btn primary">Search</button>
+      </form>
+      <p class="muted" id="searchInfo">Searches the offline index first, then the full Pokémon TCG catalogue.</p>
+      <div class="grid" id="searchResults"></div>
+    </section>
+  </main>
+
+  <footer class="foot">ScanDex is a student project and is not affiliated with The Pokémon Company, Nintendo or TCGplayer. Prices are market estimates.</footer>
+
+  <dialog id="detail"></dialog>
+  <div class="toast" id="toast" role="status"></div>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>

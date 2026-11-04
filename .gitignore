@@ -1,0 +1,10 @@
+# downloaded dataset (rebuild with ml/01_collect_dataset.py)
+ml/data/
+ml/*.log
+# local HTTPS certificate
+.cert/
+__pycache__/
+*.pyc
+tests/parity_fixture.json
+paper/~$*
+.claude/
